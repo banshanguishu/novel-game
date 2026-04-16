@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { advanceGameStream, startGame } from "./api";
-import type { Choice, GameResponse, GameSession } from "./types";
+import type { ChapterTransitionData, Choice, GameResponse, GameSession, Metrics } from "./types";
 
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (
@@ -32,6 +32,104 @@ function ChoiceButton({
   );
 }
 
+function NarrativeSkeleton() {
+  return (
+    <div className="mt-8 space-y-5 animate-pulse">
+      <div className="h-5 rounded bg-cedar/10 w-full" />
+      <div className="h-5 rounded bg-cedar/10 w-11/12" />
+      <div className="h-5 rounded bg-cedar/10 w-full" />
+      <div className="h-5 rounded bg-cedar/10 w-9/12" />
+      <div className="h-5 rounded bg-cedar/10 w-full" />
+      <div className="h-5 rounded bg-cedar/10 w-10/12" />
+    </div>
+  );
+}
+
+const METRIC_LABELS: Record<keyof Metrics, string> = {
+  reputation: "名声",
+  imperialFavor: "帝心",
+  peopleSupport: "民心",
+  intrigue: "权谋",
+  military: "兵势",
+  wealth: "财富",
+};
+
+function ChapterTransitionPanel({
+  data,
+  onContinue,
+}: {
+  data: ChapterTransitionData;
+  onContinue: () => void;
+}) {
+  return (
+    <div className="rounded-[28px] border border-ember/20 bg-parchment/95 p-6 shadow-card backdrop-blur md:p-8">
+      <div className="text-sm uppercase tracking-[0.3em] text-ember/70">章节完成</div>
+      <h2 className="mt-3 font-display text-3xl font-bold text-ink">
+        {data.completedChapter.name}
+      </h2>
+      <p className="mt-4 text-base leading-8 text-cedar/85">{data.completedChapter.summary}</p>
+
+      {data.completedChapter.keyEvents.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm uppercase tracking-[0.2em] text-cedar/55">关键事件</div>
+          <ul className="mt-2 space-y-1 text-sm text-cedar/80">
+            {data.completedChapter.keyEvents.map((event, i) => (
+              <li key={i}>· {event}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div className="mt-6">
+        <div className="text-sm uppercase tracking-[0.2em] text-cedar/55">属性变化</div>
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {(Object.keys(METRIC_LABELS) as Array<keyof Metrics>).map((key) => {
+            const before = data.metricsComparison.before[key];
+            const after = data.metricsComparison.after[key];
+            const diff = after - before;
+            return (
+              <div key={key} className="rounded-xl border border-cedar/10 bg-white/60 px-3 py-2">
+                <div className="text-xs text-cedar/55">{METRIC_LABELS[key]}</div>
+                <div className="mt-1 text-lg font-semibold text-ink">
+                  {after}
+                  {diff !== 0 && (
+                    <span className={`ml-1 text-sm ${diff > 0 ? "text-moss" : "text-ember"}`}>
+                      {diff > 0 ? `+${diff}` : diff}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {data.npcChanges.length > 0 && (
+        <div className="mt-6">
+          <div className="text-sm uppercase tracking-[0.2em] text-cedar/55">人物关系变化</div>
+          <div className="mt-2 space-y-2">
+            {data.npcChanges.map((npc, i) => (
+              <div key={i} className="rounded-xl border border-cedar/10 bg-white/60 px-3 py-2 text-sm text-cedar/80">
+                <span className="font-semibold text-ink">{npc.name}</span>
+                ：{npc.oldAttitude} → {npc.newAttitude}
+                <span className="ml-2 text-cedar/60">（{npc.relationship}）</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onContinue}
+        className="mt-8 w-full rounded-2xl bg-ink px-5 py-3 text-white transition hover:bg-cedar"
+      >
+        进入{data.nextChapter.name}
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const [heroName, setHeroName] = useState("林墨");
   const [session, setSession] = useState<GameSession | null>(null);
@@ -40,6 +138,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamedNarrative, setStreamedNarrative] = useState("");
+  const [chapterTransition, setChapterTransition] = useState<ChapterTransitionData | null>(null);
 
   const metrics = session?.state.metrics ?? {
     reputation: 0,
@@ -75,11 +174,15 @@ export default function App() {
     setLoading(true);
     setError(null);
     setStreamedNarrative("");
+    setChapterTransition(null);
 
     try {
       const result = await advanceGameStream(session, choiceId, {
         onNarrativeDelta: (delta) => {
           setStreamedNarrative((current) => current + delta);
+        },
+        onChapterTransition: (data) => {
+          setChapterTransition(data);
         },
         onComplete: (payload) => {
           setSession(payload.session);
@@ -91,6 +194,9 @@ export default function App() {
       setSession(result.session);
       setScene(result.scene);
       setMode(result.mode);
+      if (result.chapterTransition) {
+        setChapterTransition(result.chapterTransition);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "推进失败");
     } finally {
@@ -99,13 +205,17 @@ export default function App() {
     }
   }
 
-  const displayedNarrative =
-    loading && streamedNarrative.trim()
-      ? streamedNarrative
-          .split(/\n\s*\n/)
-          .map((paragraph) => paragraph.trim())
-          .filter(Boolean)
-      : scene?.narrative ?? [];
+  function handleChapterContinue() {
+    setChapterTransition(null);
+  }
+
+  const hasStreamedText = loading && streamedNarrative.trim();
+  const displayedNarrative = hasStreamedText
+    ? streamedNarrative
+        .split(/\n\s*\n/)
+        .map((paragraph) => paragraph.trim())
+        .filter(Boolean)
+    : scene?.narrative ?? [];
 
   return (
     <main className="min-h-screen px-4 py-8 text-ink md:px-8">
@@ -181,34 +291,48 @@ export default function App() {
           </aside>
 
           <section className="rounded-[28px] border border-cedar/10 bg-white/75 p-6 shadow-card backdrop-blur md:p-8">
-            {scene ? (
+            {chapterTransition ? (
+              <ChapterTransitionPanel data={chapterTransition} onContinue={handleChapterContinue} />
+            ) : scene ? (
               <div>
                 <div className="text-sm uppercase tracking-[0.25em] text-ember/65">{scene.chapter}</div>
                 <h2 className="mt-2 font-display text-4xl font-bold">{scene.title}</h2>
                 <div className="mt-3 text-sm text-cedar/70">{scene.location}</div>
-                {loading && streamedNarrative ? (
+
+                {loading && (
                   <div className="mt-4 inline-flex items-center rounded-full border border-ember/20 bg-ember/5 px-3 py-1 text-xs tracking-[0.2em] text-ember/70">
                     剧情推演中
                   </div>
-                ) : null}
-                <div className="mt-8 space-y-5 text-lg leading-9 text-ink/95">
-                  {displayedNarrative.map((paragraph, index) => (
-                    <p key={`${scene.title}-${index}`}>{paragraph}</p>
-                  ))}
-                </div>
+                )}
+
+                {loading && !hasStreamedText ? (
+                  <NarrativeSkeleton />
+                ) : (
+                  <div className="mt-8 space-y-5 text-lg leading-9 text-ink/95">
+                    {displayedNarrative.map((paragraph, index) => (
+                      <p key={`${scene.title}-${index}`}>{paragraph}</p>
+                    ))}
+                  </div>
+                )}
 
                 <div className="mt-10">
                   <div className="mb-4 text-sm uppercase tracking-[0.25em] text-cedar/55">你的行动</div>
-                  <div className="grid gap-3">
-                    {scene.choices.map((choice) => (
-                      <ChoiceButton
-                        key={choice.id}
-                        choice={choice}
-                        disabled={loading}
-                        onClick={handleAdvance}
-                      />
-                    ))}
-                  </div>
+                  {loading ? (
+                    <div className="rounded-2xl border border-dashed border-cedar/15 bg-parchment/40 px-5 py-6 text-center text-sm text-cedar/50">
+                      命运的齿轮开始转动...
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {scene.choices.map((choice) => (
+                        <ChoiceButton
+                          key={choice.id}
+                          choice={choice}
+                          disabled={loading}
+                          onClick={handleAdvance}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
