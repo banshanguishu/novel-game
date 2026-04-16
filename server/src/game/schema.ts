@@ -31,3 +31,19 @@ export const aiTurnSchema = z.object({
 }).strict();
 
 export type AiTurn = z.infer<typeof aiTurnSchema>;
+
+export const chapterSummaryResponseSchema = z.object({
+  summary: z.string().min(50).max(500),
+  keyEvents: z.array(z.string().min(2).max(40)).min(1).max(6),
+  npcUpdates: z.array(
+    z.object({
+      npcId: z.string().min(1),
+      attitude: z.string().min(1).max(20),
+      relationship: z.string().min(2).max(60),
+      visible: z.boolean(),
+    }),
+  ).max(8),
+  unresolvedHooks: z.array(z.string().min(4).max(80)).max(6),
+}).strict();
+
+export type ChapterSummaryResponse = z.infer<typeof chapterSummaryResponseSchema>;
