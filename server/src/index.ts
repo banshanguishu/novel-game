@@ -4,10 +4,11 @@ import dotenv from "dotenv";
 import express from "express";
 import cors from "cors";
 import { z } from "zod";
-import { applyTurn, findChoice } from "./game/engine.js";
+import { applyTurn, applyChapterTransition, findChoice } from "./game/engine.js";
 import { createOpeningScene, createInitialSession } from "./game/opening.js";
-import { generateAiTurn, generateAiTurnFromNarrative, streamNarrativeTurn } from "./game/openai.js";
-import type { GameResponse, GameSession } from "./types.js";
+import { generateAiTurn, generateAiTurnFromNarrative, generateChapterSummary, streamNarrativeTurn } from "./game/openai.js";
+import type { ChapterTransitionData, GameResponse, GameSession, Metrics } from "./types.js";
+import { getChapterConfig, getNextChapterId } from "./game/chapters.js";
 
 dotenv.config({
   path: path.resolve(import.meta.dirname, "../.env"),
@@ -60,6 +61,55 @@ function writeSse(response: express.Response, event: string, data: unknown) {
   response.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+async function handleChapterTransition(
+  session: GameSession,
+  metricsBefore: Metrics,
+): Promise<{ updatedSession: GameSession; transitionData: ChapterTransitionData }> {
+  const currentConfig = getChapterConfig(session.state.world.chapterId);
+  const nextChapterId = getNextChapterId(session.state.world.chapterId);
+  const nextConfig = nextChapterId ? getChapterConfig(nextChapterId) : null;
+
+  const { summary } = await generateChapterSummary(session);
+
+  const npcChanges = summary.npcUpdates.map((update) => {
+    const existingNpc = session.state.npcs.find((n) => n.id === update.npcId);
+    return {
+      name: existingNpc?.name ?? update.npcId,
+      oldAttitude: existingNpc?.attitude ?? "未知",
+      newAttitude: update.attitude,
+      relationship: update.relationship,
+    };
+  });
+
+  const updatedSession = applyChapterTransition(
+    session,
+    summary.summary,
+    summary.keyEvents,
+    summary.npcUpdates,
+    summary.unresolvedHooks,
+  );
+
+  const transitionData: ChapterTransitionData = {
+    completedChapter: {
+      id: currentConfig.id,
+      name: currentConfig.name,
+      summary: summary.summary,
+      keyEvents: summary.keyEvents,
+    },
+    metricsComparison: {
+      before: metricsBefore,
+      after: session.state.metrics,
+    },
+    npcChanges,
+    nextChapter: {
+      id: nextConfig?.id ?? currentConfig.id,
+      name: nextConfig?.name ?? currentConfig.name,
+    },
+  };
+
+  return { updatedSession, transitionData };
+}
+
 app.post("/api/game/advance", async (request, response) => {
   const parsed = advanceSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -70,8 +120,18 @@ app.post("/api/game/advance", async (request, response) => {
   try {
     const selectedChoice = findChoice(parsed.data.session, parsed.data.choiceId);
     const generated = await generateAiTurn(parsed.data.session, selectedChoice);
-    const payload = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
-    response.json(payload);
+    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
+
+    if (result.needsChapterTransition) {
+      const { updatedSession, transitionData } = await handleChapterTransition(
+        result.response.session,
+        result.metricsBeforeTurn,
+      );
+      result.response.session = updatedSession;
+      result.response.chapterTransition = transitionData;
+    }
+
+    response.json(result.response);
   } catch (error) {
     response.status(400).send(error instanceof Error ? error.message : "剧情推进失败。");
   }
@@ -93,6 +153,7 @@ app.post("/api/game/advance/stream", async (request, response) => {
   try {
     const selectedChoice = findChoice(parsed.data.session, parsed.data.choiceId);
     writeSse(response, "start", { ok: true });
+
     const streamed = await streamNarrativeTurn(parsed.data.session, selectedChoice, async (delta) => {
       writeSse(response, "narrative_delta", { delta });
     });
@@ -104,8 +165,19 @@ app.post("/api/game/advance/stream", async (request, response) => {
       streamed.mode,
     );
 
-    const payload = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
-    writeSse(response, "complete", payload);
+    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
+
+    if (result.needsChapterTransition) {
+      const { updatedSession, transitionData } = await handleChapterTransition(
+        result.response.session,
+        result.metricsBeforeTurn,
+      );
+      result.response.session = updatedSession;
+      result.response.chapterTransition = transitionData;
+      writeSse(response, "chapter_transition", transitionData);
+    }
+
+    writeSse(response, "complete", result.response);
   } catch (error) {
     writeSse(response, "error", {
       message: error instanceof Error ? error.message : "剧情推进失败。",
@@ -123,7 +195,6 @@ if (existsSync(clientDistPath)) {
       next();
       return;
     }
-
     response.sendFile(path.join(clientDistPath, "index.html"));
   });
 }
