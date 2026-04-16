@@ -1,4 +1,5 @@
 import type { AiTurn } from "./schema.js";
+import type { ChapterSummaryResponse } from "./schema.js";
 import type { ChoiceIntent, GameSession } from "../types.js";
 
 interface FallbackChoiceTemplate {
@@ -15,27 +16,7 @@ interface FallbackSceneTemplate {
   choices: FallbackChoiceTemplate[];
 }
 
-function buildChapterLabel(turn: number): string {
-  if (turn <= 3) {
-    return "第一章";
-  }
-
-  if (turn <= 6) {
-    return "第二章";
-  }
-
-  if (turn <= 10) {
-    return "第三章";
-  }
-
-  if (turn <= 14) {
-    return "第四章";
-  }
-
-  return "第五章";
-}
-
-function openingFollowups(intent: ChoiceIntent): FallbackSceneTemplate {
+function chapter1Scene(intent: ChoiceIntent): FallbackSceneTemplate {
   if (intent === "people") {
     return {
       title: "粥棚前的眼线",
@@ -47,29 +28,14 @@ function openingFollowups(intent: ChoiceIntent): FallbackSceneTemplate {
       ],
       summary: "你借义粥棚的人情与传闻，摸到了一条接近县衙的门路。",
       suggestedState: {
-        reputationDelta: 1,
-        imperialFavorDelta: 0,
-        peopleSupportDelta: 2,
-        intrigueDelta: 1,
-        militaryDelta: 0,
-        wealthDelta: 1,
-        imperialAuthorityDelta: 0,
-        factionProgressDelta: 1,
+        reputationDelta: 1, imperialFavorDelta: 0, peopleSupportDelta: 2, intrigueDelta: 1,
+        militaryDelta: 0, wealthDelta: 1, imperialAuthorityDelta: 0, factionProgressDelta: 1,
         flagsToAdd: ["heard_county_recruitment"],
       },
       choices: [
-        {
-          label: "借识字的机会接近县衙书吏，摸清谁在幕后调人。",
-          intent: "power",
-        },
-        {
-          label: "继续在流民中施恩，先攒一批愿意跟你走的人手。",
-          intent: "people",
-        },
-        {
-          label: "不急着现身，先盯住那几名差役的行踪与口风。",
-          intent: "caution",
-        },
+        { label: "借识字的机会接近县衙书吏，摸清谁在幕后调人。", intent: "power" },
+        { label: "继续在流民中施恩，先攒一批愿意跟你走的人手。", intent: "people" },
+        { label: "不急着现身，先盯住那几名差役的行踪与口风。", intent: "caution" },
       ],
     };
   }
@@ -85,29 +51,14 @@ function openingFollowups(intent: ChoiceIntent): FallbackSceneTemplate {
       ],
       summary: "你救下伤卒，拿到一条涉军线索和一枚可用来试探军伍关系的木牌。",
       suggestedState: {
-        reputationDelta: 1,
-        imperialFavorDelta: 0,
-        peopleSupportDelta: 0,
-        intrigueDelta: 1,
-        militaryDelta: 2,
-        wealthDelta: 0,
-        imperialAuthorityDelta: 0,
-        factionProgressDelta: 1,
+        reputationDelta: 1, imperialFavorDelta: 0, peopleSupportDelta: 0, intrigueDelta: 1,
+        militaryDelta: 2, wealthDelta: 0, imperialAuthorityDelta: 0, factionProgressDelta: 1,
         flagsToAdd: ["obtained_military_token"],
       },
       choices: [
-        {
-          label: "循着木牌去寻那支镇军的营地，试探军中缺口。",
-          intent: "action",
-        },
-        {
-          label: "把军情藏在心里，先查是谁敢在北境截军报。",
-          intent: "power",
-        },
-        {
-          label: "暂不露声色，先找个可靠落脚处把命保稳。",
-          intent: "caution",
-        },
+        { label: "循着木牌去寻那支镇军的营地，试探军中缺口。", intent: "action" },
+        { label: "把军情藏在心里，先查是谁敢在北境截军报。", intent: "power" },
+        { label: "暂不露声色，先找个可靠落脚处把命保稳。", intent: "caution" },
       ],
     };
   }
@@ -122,34 +73,19 @@ function openingFollowups(intent: ChoiceIntent): FallbackSceneTemplate {
     ],
     summary: "你在文棚露了一手，成功引起了县中幕僚的注意。",
     suggestedState: {
-      reputationDelta: 2,
-      imperialFavorDelta: 0,
-      peopleSupportDelta: 0,
-      intrigueDelta: 2,
-      militaryDelta: 0,
-      wealthDelta: 0,
-      imperialAuthorityDelta: 0,
-      factionProgressDelta: 1,
+      reputationDelta: 2, imperialFavorDelta: 0, peopleSupportDelta: 0, intrigueDelta: 2,
+      militaryDelta: 0, wealthDelta: 0, imperialAuthorityDelta: 0, factionProgressDelta: 1,
       flagsToAdd: ["entered_literati_circle"],
     },
     choices: [
-      {
-        label: "顺着这位幕僚的门路递诗卷，争取面见县中主事。",
-        intent: "power",
-      },
-      {
-        label: "借文棚名声结交落魄书生，先织一张消息网。",
-        intent: "people",
-      },
-      {
-        label: "不急着投门，先打听这位幕僚属于哪一派的人。",
-        intent: "caution",
-      },
+      { label: "顺着这位幕僚的门路递诗卷，争取面见县中主事。", intent: "power" },
+      { label: "借文棚名声结交落魄书生，先织一张消息网。", intent: "people" },
+      { label: "不急着投门，先打听这位幕僚属于哪一派的人。", intent: "caution" },
     ],
   };
 }
 
-function secondChapterFollowups(session: GameSession, intent: ChoiceIntent): FallbackSceneTemplate {
+function chapter2Scene(session: GameSession, intent: ChoiceIntent): FallbackSceneTemplate {
   if (intent === "people") {
     return {
       title: "流民册上的名字",
@@ -161,29 +97,14 @@ function secondChapterFollowups(session: GameSession, intent: ChoiceIntent): Fal
       ],
       summary: "你开始在流民中积蓄人脉，也看到了用民心撬动仕途的可能。",
       suggestedState: {
-        reputationDelta: 1,
-        imperialFavorDelta: 0,
-        peopleSupportDelta: 3,
-        intrigueDelta: 1,
-        militaryDelta: 0,
-        wealthDelta: 1,
-        imperialAuthorityDelta: 1,
-        factionProgressDelta: 1,
+        reputationDelta: 1, imperialFavorDelta: 0, peopleSupportDelta: 3, intrigueDelta: 1,
+        militaryDelta: 0, wealthDelta: 1, imperialAuthorityDelta: 1, factionProgressDelta: 1,
         flagsToAdd: ["built_commoner_network"],
       },
       choices: [
-        {
-          label: "整理流民诉求，借机向县衙献上一套安置之策。",
-          intent: "power",
-        },
-        {
-          label: "扩张消息网，把市井、驿站与粮行都串联起来。",
-          intent: "people",
-        },
-        {
-          label: "暂时收缩人手，先查清县衙里谁最忌惮流民抱团。",
-          intent: "caution",
-        },
+        { label: "整理流民诉求，借机向县衙献上一套安置之策。", intent: "power" },
+        { label: "扩张消息网，把市井、驿站与粮行都串联起来。", intent: "people" },
+        { label: "暂时收缩人手，先查清县衙里谁最忌惮流民抱团。", intent: "caution" },
       ],
     };
   }
@@ -199,29 +120,14 @@ function secondChapterFollowups(session: GameSession, intent: ChoiceIntent): Fal
       ],
       summary: "你正式触碰到镇军内部的隐秘裂缝，军中关系开始向你打开一线。",
       suggestedState: {
-        reputationDelta: 1,
-        imperialFavorDelta: 0,
-        peopleSupportDelta: 0,
-        intrigueDelta: 2,
-        militaryDelta: 2,
-        wealthDelta: 0,
-        imperialAuthorityDelta: 0,
-        factionProgressDelta: 2,
+        reputationDelta: 1, imperialFavorDelta: 0, peopleSupportDelta: 0, intrigueDelta: 2,
+        militaryDelta: 2, wealthDelta: 0, imperialAuthorityDelta: 0, factionProgressDelta: 2,
         flagsToAdd: ["touched_military_rift"],
       },
       choices: [
-        {
-          label: "顺势依附那名校尉，换取一个能出入营门的身份。",
-          intent: "action",
-        },
-        {
-          label: "把军中异样记在心里，转而向县衙换取更大的筹码。",
-          intent: "power",
-        },
-        {
-          label: "不再深入，先确认这名校尉到底是敌是友。",
-          intent: "caution",
-        },
+        { label: "顺势依附那名校尉，换取一个能出入营门的身份。", intent: "action" },
+        { label: "把军中异样记在心里，转而向县衙换取更大的筹码。", intent: "power" },
+        { label: "不再深入，先确认这名校尉到底是敌是友。", intent: "caution" },
       ],
     };
   }
@@ -236,34 +142,19 @@ function secondChapterFollowups(session: GameSession, intent: ChoiceIntent): Fal
     ],
     summary: "你凭账册显出真本事，并嗅到了一条通往更高层权力的线索。",
     suggestedState: {
-      reputationDelta: 2,
-      imperialFavorDelta: 1,
-      peopleSupportDelta: 0,
-      intrigueDelta: 3,
-      militaryDelta: 0,
-      wealthDelta: 1,
-      imperialAuthorityDelta: 1,
-      factionProgressDelta: 1,
+      reputationDelta: 2, imperialFavorDelta: 1, peopleSupportDelta: 0, intrigueDelta: 3,
+      militaryDelta: 0, wealthDelta: 1, imperialAuthorityDelta: 1, factionProgressDelta: 1,
       flagsToAdd: ["noticed_supply_corruption"],
     },
     choices: [
-      {
-        label: "继续追查粮册去向，揪出县中真正做账的人。",
-        intent: "power",
-      },
-      {
-        label: "先借幕僚赏识站稳脚跟，再慢慢经营士林名声。",
-        intent: "people",
-      },
-      {
-        label: "把证据先藏住，观察县令与幕僚谁更值得下注。",
-        intent: "caution",
-      },
+      { label: "继续追查粮册去向，揪出县中真正做账的人。", intent: "power" },
+      { label: "先借幕僚赏识站稳脚跟，再慢慢经营士林名声。", intent: "people" },
+      { label: "把证据先藏住，观察县令与幕僚谁更值得下注。", intent: "caution" },
     ],
   };
 }
 
-function thirdChapterFollowups(session: GameSession): FallbackSceneTemplate {
+function chapter3Scene(session: GameSession): FallbackSceneTemplate {
   const hasCorruptionClue = session.state.flags.includes("noticed_supply_corruption");
 
   if (hasCorruptionClue) {
@@ -277,29 +168,14 @@ function thirdChapterFollowups(session: GameSession): FallbackSceneTemplate {
       ],
       summary: "你的查案结果惊动了京中势力，主线正式转向朝堂。",
       suggestedState: {
-        reputationDelta: 2,
-        imperialFavorDelta: 2,
-        peopleSupportDelta: 1,
-        intrigueDelta: 3,
-        militaryDelta: 0,
-        wealthDelta: 1,
-        imperialAuthorityDelta: 2,
-        factionProgressDelta: 2,
+        reputationDelta: 2, imperialFavorDelta: 2, peopleSupportDelta: 1, intrigueDelta: 3,
+        militaryDelta: 0, wealthDelta: 1, imperialAuthorityDelta: 2, factionProgressDelta: 2,
         flagsToAdd: ["summoned_to_capital"],
       },
       choices: [
-        {
-          label: "带着证据入京，直接赌一把朝堂里的识人之明。",
-          intent: "power",
-        },
-        {
-          label: "先补齐沿途人脉和护身筹码，再动身入京。",
-          intent: "people",
-        },
-        {
-          label: "暗中留一份副本，防着有人半路灭口夺证。",
-          intent: "caution",
-        },
+        { label: "带着证据入京，直接赌一把朝堂里的识人之明。", intent: "power" },
+        { label: "先补齐沿途人脉和护身筹码，再动身入京。", intent: "people" },
+        { label: "暗中留一份副本，防着有人半路灭口夺证。", intent: "caution" },
       ],
     };
   }
@@ -314,34 +190,19 @@ function thirdChapterFollowups(session: GameSession): FallbackSceneTemplate {
     ],
     summary: "你在县治中站稳位置，开始具备真正意义上的政治筹码。",
     suggestedState: {
-      reputationDelta: 2,
-      imperialFavorDelta: 1,
-      peopleSupportDelta: 2,
-      intrigueDelta: 2,
-      militaryDelta: 0,
-      wealthDelta: 1,
-      imperialAuthorityDelta: 1,
-      factionProgressDelta: 1,
+      reputationDelta: 2, imperialFavorDelta: 1, peopleSupportDelta: 2, intrigueDelta: 2,
+      militaryDelta: 0, wealthDelta: 1, imperialAuthorityDelta: 1, factionProgressDelta: 1,
       flagsToAdd: ["county_reputation_established"],
     },
     choices: [
-      {
-        label: "借政绩上书，主动争取更高层官员的注意。",
-        intent: "power",
-      },
-      {
-        label: "把县中人手编织成稳固班底，为后路先蓄势。",
-        intent: "people",
-      },
-      {
-        label: "先收敛锋芒，看看哪一方会最先对你动手。",
-        intent: "caution",
-      },
+      { label: "借政绩上书，主动争取更高层官员的注意。", intent: "power" },
+      { label: "把县中人手编织成稳固班底，为后路先蓄势。", intent: "people" },
+      { label: "先收敛锋芒，看看哪一方会最先对你动手。", intent: "caution" },
     ],
   };
 }
 
-function laterStageFollowups(session: GameSession): FallbackSceneTemplate {
+function genericLateScene(): FallbackSceneTemplate {
   return {
     title: "朝局风声",
     location: "王畿近郊",
@@ -352,49 +213,31 @@ function laterStageFollowups(session: GameSession): FallbackSceneTemplate {
     ],
     summary: "你已经站到朝局边缘，下一步会真正进入与藩镇、世家、皇权的正面博弈。",
     suggestedState: {
-      reputationDelta: 2,
-      imperialFavorDelta: 2,
-      peopleSupportDelta: 1,
-      intrigueDelta: 3,
-      militaryDelta: 1,
-      wealthDelta: 1,
-      imperialAuthorityDelta: 2,
-      factionProgressDelta: 2,
+      reputationDelta: 2, imperialFavorDelta: 2, peopleSupportDelta: 1, intrigueDelta: 3,
+      militaryDelta: 1, wealthDelta: 1, imperialAuthorityDelta: 2, factionProgressDelta: 2,
       flagsToAdd: ["entered_central_stage"],
     },
     choices: [
-      {
-        label: "主动靠近忠于皇室的旧臣，先把自己放进帝党视野。",
-        intent: "power",
-      },
-      {
-        label: "从市井与驿站下手，先补齐王畿内外的情报网。",
-        intent: "people",
-      },
-      {
-        label: "先不急着表态，摸清三方势力的真实底牌再动。",
-        intent: "caution",
-      },
+      { label: "主动靠近忠于皇室的旧臣，先把自己放进帝党视野。", intent: "power" },
+      { label: "从市井与驿站下手，先补齐王畿内外的情报网。", intent: "people" },
+      { label: "先不急着表态，摸清三方势力的真实底牌再动。", intent: "caution" },
     ],
   };
 }
 
 function buildScene(session: GameSession, intent: ChoiceIntent): FallbackSceneTemplate {
-  const nextTurn = session.state.world.turn + 1;
+  const chapterId = session.state.world.chapterId;
 
-  if (nextTurn === 2) {
-    return openingFollowups(intent);
+  switch (chapterId) {
+    case "chapter_1":
+      return chapter1Scene(intent);
+    case "chapter_2":
+      return chapter2Scene(session, intent);
+    case "chapter_3":
+      return chapter3Scene(session);
+    default:
+      return genericLateScene();
   }
-
-  if (nextTurn === 3) {
-    return secondChapterFollowups(session, intent);
-  }
-
-  if (nextTurn === 4 || nextTurn === 5) {
-    return thirdChapterFollowups(session);
-  }
-
-  return laterStageFollowups(session);
 }
 
 export function createFallbackTurn(session: GameSession, _choiceLabel: string, intent: ChoiceIntent): AiTurn {
@@ -403,10 +246,29 @@ export function createFallbackTurn(session: GameSession, _choiceLabel: string, i
   return {
     title: scene.title,
     location: scene.location,
-    chapterLabel: buildChapterLabel(session.state.world.turn + 1),
+    chapterLabel: session.state.world.chapter,
     narrative: scene.lines,
     summary: scene.summary,
     suggestedState: scene.suggestedState,
     choices: scene.choices,
+  };
+}
+
+export function createFallbackChapterSummary(session: GameSession): ChapterSummaryResponse {
+  const chapterId = session.state.world.chapterId;
+  const historyEvents = session.history.map((h) => h.summary).slice(0, 4);
+
+  const summaries: Record<string, string> = {
+    chapter_1: `${session.protagonistName}以流民之身在青石渡艰难求生，凭借现代知识与诗词才华初步站稳脚跟，引起了地方势力的注意，为后续进入仕途打下了基础。`,
+    chapter_2: `${session.protagonistName}在县中崭露头角，通过文才与谋略赢得幕僚赏识，开始触及地方权力核心，逐渐从一介寒士蜕变为有分量的棋子。`,
+    chapter_3: `${session.protagonistName}的名声与能力终于传至朝堂，获得入京机会，正式踏入与藩镇、世家、皇权的三方博弈之中。`,
+    chapter_4: `${session.protagonistName}在朝堂中站稳脚跟，凭借军事才能和政治手腕，开始统领兵马平定各方割据势力。`,
+  };
+
+  return {
+    summary: summaries[chapterId] ?? `${session.protagonistName}在本章中继续推进权谋主线，势力与影响力稳步扩大。`,
+    keyEvents: historyEvents.length > 0 ? historyEvents : ["完成本章主要剧情推进"],
+    npcUpdates: [],
+    unresolvedHooks: session.state.storyMemory.unresolvedHooks,
   };
 }
