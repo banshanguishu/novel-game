@@ -1,4 +1,4 @@
-import type { GameResponse, GameSession } from "./types";
+import type { ChapterTransitionData, GameResponse, GameSession } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:3001";
 
@@ -36,6 +36,7 @@ export function advanceGame(session: GameSession, choiceId: string): Promise<Gam
 interface StreamHandlers {
   onStart?: () => void;
   onNarrativeDelta?: (delta: string) => void;
+  onChapterTransition?: (data: ChapterTransitionData) => void;
   onComplete?: (result: GameResponse) => void;
 }
 
@@ -81,6 +82,11 @@ export async function advanceGameStream(
 
     if (event === "narrative_delta") {
       handlers.onNarrativeDelta?.(String(data.delta ?? ""));
+      return;
+    }
+
+    if (event === "chapter_transition") {
+      handlers.onChapterTransition?.(data as unknown as ChapterTransitionData);
       return;
     }
 
