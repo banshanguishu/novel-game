@@ -1,0 +1,24 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #241910;
+  background:
+    radial-gradient(circle at top, rgba(171, 120, 70, 0.15), transparent 32%),
+    linear-gradient(180deg, #f8efe0 0%, #eadfcb 100%);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: "Noto Serif SC", Georgia, serif;
+}
+
+button {
+  font: inherit;
+}
+
