@@ -285,27 +285,24 @@ function createClient(): OpenAI | null {
   });
 }
 
+const noThinking = { body: { enable_thinking: false } };
+
 async function createChatCompletion(client: OpenAI, system: string, user: string) {
   const model = (process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+  const params = {
+    model,
+    messages: [
+      { role: "system" as const, content: system },
+      { role: "user" as const, content: user },
+    ],
+  };
   try {
-    return await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    });
+    return await client.chat.completions.create(params, noThinking);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const unsupportedJsonMode = message.includes("response_format") || message.includes("json_object") || message.includes("not supported");
     if (!unsupportedJsonMode) throw error;
-    return client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-    });
+    return client.chat.completions.create(params, noThinking);
   }
 }
 
@@ -334,15 +331,18 @@ export async function streamNarrativeTurn(
   try {
     const prompt = buildNarrativePrompt(session, selectedChoice);
     const model = (process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
-    const stream = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: prompt.system },
-        { role: "user", content: prompt.user },
-      ],
-      stream: true,
-      max_tokens: 420,
-    });
+    const stream = await client.chat.completions.create(
+      {
+        model,
+        messages: [
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.user },
+        ],
+        stream: true,
+        max_tokens: 420,
+      },
+      noThinking,
+    );
 
     let text = "";
     for await (const chunk of stream) {
