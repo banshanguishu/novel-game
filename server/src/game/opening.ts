@@ -1,4 +1,5 @@
 import type { Choice, GameSession, StoryScene } from "../types.js";
+import { createInitialNpcs, activateNpcsForChapter } from "./npcs.js";
 
 const openingChoices: Choice[] = [
   {
@@ -19,6 +20,8 @@ const openingChoices: Choice[] = [
 ];
 
 export function createInitialSession(protagonistName: string): GameSession {
+  const npcs = activateNpcsForChapter(createInitialNpcs(), "chapter_1");
+
   return {
     protagonistName,
     route: "权谋",
@@ -34,12 +37,20 @@ export function createInitialSession(protagonistName: string): GameSession {
       world: {
         turn: 1,
         phase: "草根求生",
-        chapter: "第一章",
+        chapter: "草根求生",
+        chapterId: "chapter_1",
+        chapterTurn: 0,
         routeFocus: "专注权谋",
         imperialAuthority: 8,
         factionProgress: 0,
       },
       flags: ["opening_started", "male_protagonist", "power_route_locked"],
+      npcs,
+      chapterSummaries: [],
+      storyMemory: {
+        relationships: [],
+        unresolvedHooks: [],
+      },
     },
     history: [],
     availableChoices: openingChoices,
@@ -48,7 +59,7 @@ export function createInitialSession(protagonistName: string): GameSession {
 
 export function createOpeningScene(session: GameSession): StoryScene {
   return {
-    chapter: "第一章",
+    chapter: "草根求生",
     title: "破庙夜雨",
     location: "大雍北境·青石渡外",
     narrative: [
