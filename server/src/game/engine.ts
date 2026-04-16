@@ -1,48 +1,10 @@
 import type { AiTurn } from "./schema.js";
-import type { Choice, ChoiceIntent, GameResponse, GameSession, StoryScene } from "../types.js";
+import type { Choice, ChoiceIntent, GameResponse, GameSession, Metrics, StoryScene } from "../types.js";
+import { getChapterConfig, getNextChapterId, shouldTransitionChapter } from "./chapters.js";
+import { activateNpcsForChapter } from "./npcs.js";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function derivePhase(turn: number): string {
-  if (turn <= 3) {
-    return "草根求生";
-  }
-
-  if (turn <= 6) {
-    return "文人扬名";
-  }
-
-  if (turn <= 10) {
-    return "朝堂博弈";
-  }
-
-  if (turn <= 14) {
-    return "平定天下";
-  }
-
-  return "盛世开创";
-}
-
-function deriveChapter(turn: number): string {
-  if (turn <= 3) {
-    return "第一章";
-  }
-
-  if (turn <= 6) {
-    return "第二章";
-  }
-
-  if (turn <= 10) {
-    return "第三章";
-  }
-
-  if (turn <= 14) {
-    return "第四章";
-  }
-
-  return "第五章";
 }
 
 function baseEffects(intent: ChoiceIntent) {
@@ -74,20 +36,32 @@ export function findChoice(session: GameSession, choiceId: string): Choice {
   if (!choice) {
     throw new Error("无效选项，当前回合状态已失效。");
   }
-
   return choice;
 }
 
-export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: AiTurn, mode: GameResponse["mode"]): GameResponse {
+export interface ApplyTurnResult {
+  response: GameResponse;
+  needsChapterTransition: boolean;
+  metricsBeforeTurn: Metrics;
+}
+
+export function applyTurn(
+  session: GameSession,
+  selectedChoice: Choice,
+  aiTurn: AiTurn,
+  mode: GameResponse["mode"],
+): ApplyTurnResult {
+  const metricsBeforeTurn = { ...session.state.metrics };
   const nextTurn = session.state.world.turn + 1;
-  const nextPhase = derivePhase(nextTurn);
-  const nextChapter = deriveChapter(nextTurn);
+  const nextChapterTurn = session.state.world.chapterTurn + 1;
+  const currentChapterId = session.state.world.chapterId;
+  const currentConfig = getChapterConfig(currentChapterId);
 
   const base = baseEffects(selectedChoice.intent);
   const metrics = session.state.metrics;
   const suggestion = aiTurn.suggestedState;
 
-  const nextMetrics = {
+  const nextMetrics: Metrics = {
     reputation: clamp(metrics.reputation + base.reputation + (suggestion.reputationDelta ?? 0), 0, 100),
     imperialFavor: clamp(metrics.imperialFavor + base.imperialFavor + (suggestion.imperialFavorDelta ?? 0), 0, 100),
     peopleSupport: clamp(metrics.peopleSupport + base.peopleSupport + (suggestion.peopleSupportDelta ?? 0), 0, 100),
@@ -100,8 +74,15 @@ export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: 
   for (const flag of suggestion.flagsToAdd ?? []) {
     flagSet.add(flag);
   }
-
   flagSet.add(`turn_${nextTurn}_resolved`);
+  const nextFlags = [...flagSet];
+
+  const needsChapterTransition = shouldTransitionChapter(
+    currentChapterId,
+    nextChapterTurn,
+    nextMetrics,
+    nextFlags,
+  );
 
   const nextChoices = assignChoiceIds(nextTurn, aiTurn.choices);
 
@@ -112,8 +93,10 @@ export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: 
       metrics: nextMetrics,
       world: {
         turn: nextTurn,
-        phase: nextPhase,
-        chapter: nextChapter,
+        phase: currentConfig.name,
+        chapter: currentConfig.name,
+        chapterId: currentChapterId,
+        chapterTurn: nextChapterTurn,
         routeFocus: "专注权谋",
         imperialAuthority: clamp(
           session.state.world.imperialAuthority + (suggestion.imperialAuthorityDelta ?? 0) + Math.floor(nextMetrics.intrigue / 20),
@@ -126,7 +109,10 @@ export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: 
           100,
         ),
       },
-      flags: [...flagSet],
+      flags: nextFlags,
+      npcs: session.state.npcs,
+      chapterSummaries: session.state.chapterSummaries,
+      storyMemory: session.state.storyMemory,
     },
     history: [
       ...session.history,
@@ -140,7 +126,7 @@ export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: 
   };
 
   const scene: StoryScene = {
-    chapter: aiTurn.chapterLabel || nextChapter,
+    chapter: aiTurn.chapterLabel || currentConfig.name,
     title: aiTurn.title,
     location: aiTurn.location,
     narrative: aiTurn.narrative,
@@ -148,8 +134,65 @@ export function applyTurn(session: GameSession, selectedChoice: Choice, aiTurn: 
   };
 
   return {
-    scene,
-    session: nextSession,
-    mode,
+    response: { scene, session: nextSession, mode },
+    needsChapterTransition,
+    metricsBeforeTurn,
+  };
+}
+
+export function applyChapterTransition(
+  session: GameSession,
+  summaryText: string,
+  keyEvents: string[],
+  npcUpdates: Array<{ npcId: string; attitude: string; relationship: string; visible: boolean }>,
+  unresolvedHooks: string[],
+): GameSession {
+  const currentChapterId = session.state.world.chapterId;
+  const currentConfig = getChapterConfig(currentChapterId);
+  const nextChapterId = getNextChapterId(currentChapterId);
+
+  if (!nextChapterId) {
+    return session;
+  }
+
+  const nextConfig = getChapterConfig(nextChapterId);
+
+  const newSummary = {
+    chapterId: currentChapterId,
+    summary: summaryText,
+    keyEvents,
+  };
+
+  let updatedNpcs = session.state.npcs.map((npc) => {
+    const update = npcUpdates.find((u) => u.npcId === npc.id);
+    if (update) {
+      return { ...npc, attitude: update.attitude, relationship: update.relationship, visible: update.visible };
+    }
+    return npc;
+  });
+
+  updatedNpcs = activateNpcsForChapter(updatedNpcs, nextChapterId);
+
+  return {
+    ...session,
+    state: {
+      ...session.state,
+      world: {
+        ...session.state.world,
+        chapterId: nextChapterId,
+        chapterTurn: 0,
+        phase: nextConfig.name,
+        chapter: nextConfig.name,
+      },
+      npcs: updatedNpcs,
+      chapterSummaries: [...session.state.chapterSummaries, newSummary],
+      storyMemory: {
+        relationships: updatedNpcs
+          .filter((npc) => npc.visible)
+          .map((npc) => ({ npcId: npc.id, description: `${npc.name}（${npc.title}）—— ${npc.relationship}` })),
+        unresolvedHooks,
+      },
+    },
+    history: [],
   };
 }
