@@ -4,3 +4,10 @@ dist
 .env.local
 *.log
 
+# tsc compiled artifacts (src is TypeScript-only; Vite handles transpilation)
+client/src/*.js
+client/*.config.js
+!client/postcss.config.js
+client/*.config.d.ts
+*.tsbuildinfo
+
