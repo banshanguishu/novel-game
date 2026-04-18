@@ -1,11 +1,11 @@
 import { z } from "zod";
 
 export const aiTurnSchema = z.object({
-  title: z.string().min(2).max(30),
-  location: z.string().min(2).max(40),
-  chapterLabel: z.string().min(2).max(20),
-  narrative: z.array(z.string().min(10).max(220)).min(2).max(4),
-  summary: z.string().min(10).max(160),
+  title: z.string().min(2).max(40),
+  location: z.string().min(2).max(60),
+  chapterLabel: z.string().min(2).max(30),
+  narrative: z.array(z.string().min(5).max(500)).min(1).max(6),
+  summary: z.string().min(4).max(300),
   suggestedState: z
     .object({
       reputationDelta: z.number().int().min(-3).max(4),
@@ -16,13 +16,13 @@ export const aiTurnSchema = z.object({
       wealthDelta: z.number().int().min(-2).max(3),
       imperialAuthorityDelta: z.number().int().min(0).max(3),
       factionProgressDelta: z.number().int().min(0).max(5),
-      flagsToAdd: z.array(z.string().min(2).max(40)).max(4),
+      flagsToAdd: z.array(z.string().min(2).max(60)).max(6),
     })
     .strict(),
   choices: z
     .array(
       z.object({
-        label: z.string().min(6).max(40),
+        label: z.string().min(4).max(60),
         intent: z.enum(["power", "people", "caution", "emotion", "action"]),
       }).strict(),
     )

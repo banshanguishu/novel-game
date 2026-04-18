@@ -306,39 +306,86 @@ const DELTA_BOUNDS: Record<string, [number, number]> = {
   factionProgressDelta: [0, 5],
 };
 
+const STRING_BOUNDS: Record<string, number> = {
+  title: 40,
+  location: 60,
+  chapterLabel: 30,
+  summary: 300,
+};
+
+function normalizeNarrativeParagraphs(paragraphs: readonly unknown[]): string[] {
+  const cleaned = paragraphs
+    .filter((p): p is string => typeof p === "string")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0)
+    .map((p) => (p.length > 500 ? p.slice(0, 500) : p));
+
+  // 如果只有一段长文本，尝试按中文句末标点拆分成 2-4 段，便于阅读
+  if (cleaned.length === 1 && cleaned[0].length > 120) {
+    const sentences = cleaned[0].split(/(?<=[。！？])/).filter((s) => s.trim().length > 0);
+    if (sentences.length >= 2) {
+      const mid = Math.ceil(sentences.length / 2);
+      return [
+        sentences.slice(0, mid).join("").trim(),
+        sentences.slice(mid).join("").trim(),
+      ].filter((p) => p.length > 0);
+    }
+  }
+
+  return cleaned.slice(0, 6);
+}
+
 function sanitizeAiTurnJson(raw: unknown, overrideNarrative?: string[]): unknown {
   if (!raw || typeof raw !== "object") return raw;
   const obj = { ...(raw as Record<string, unknown>) };
 
   if (overrideNarrative) {
-    obj.narrative = overrideNarrative;
+    obj.narrative = normalizeNarrativeParagraphs(overrideNarrative);
   } else if (Array.isArray(obj.narrative)) {
-    const narr = (obj.narrative as unknown[])
-      .filter((x): x is string => typeof x === "string" && x.trim().length > 0);
-    obj.narrative = narr.slice(0, 4);
+    obj.narrative = normalizeNarrativeParagraphs(obj.narrative as unknown[]);
+  }
+
+  for (const [key, maxLen] of Object.entries(STRING_BOUNDS)) {
+    const value = obj[key];
+    if (typeof value === "string" && value.length > maxLen) {
+      obj[key] = value.slice(0, maxLen);
+    }
+  }
+
+  if (Array.isArray(obj.choices)) {
+    obj.choices = (obj.choices as unknown[]).slice(0, 4).map((choice) => {
+      if (!choice || typeof choice !== "object") return choice;
+      const item = { ...(choice as Record<string, unknown>) };
+      if (typeof item.label === "string" && item.label.length > 60) {
+        item.label = (item.label as string).slice(0, 60);
+      }
+      return item;
+    });
   }
 
   if (obj.suggestedState && typeof obj.suggestedState === "object") {
-    const deltas = { ...(obj.suggestedState as Record<string, unknown>) };
+    const state = { ...(obj.suggestedState as Record<string, unknown>) };
     for (const [key, [min, max]] of Object.entries(DELTA_BOUNDS)) {
-      const value = deltas[key];
+      const value = state[key];
       if (typeof value === "number" && Number.isFinite(value)) {
-        deltas[key] = Math.min(max, Math.max(min, Math.round(value)));
+        state[key] = Math.min(max, Math.max(min, Math.round(value)));
       }
     }
-    obj.suggestedState = deltas;
+    if (Array.isArray(state.flagsToAdd)) {
+      state.flagsToAdd = (state.flagsToAdd as unknown[])
+        .filter((f): f is string => typeof f === "string" && f.trim().length > 0)
+        .map((f) => (f.length > 60 ? f.slice(0, 60) : f))
+        .slice(0, 6);
+    }
+    obj.suggestedState = state;
   }
 
   return obj;
 }
 
 function toNarrativeParagraphs(raw: string): string[] {
-  return raw
-    .replace(/```(?:text|markdown)?/gi, "")
-    .split(/\n\s*\n/)
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .slice(0, 4);
+  const parts = raw.replace(/```(?:text|markdown)?/gi, "").split(/\n\s*\n/);
+  return normalizeNarrativeParagraphs(parts);
 }
 
 // --- OpenAI 客户端 ---
