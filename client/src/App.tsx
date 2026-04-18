@@ -134,11 +134,11 @@ export default function App() {
   const [heroName, setHeroName] = useState("林墨");
   const [session, setSession] = useState<GameSession | null>(null);
   const [scene, setScene] = useState<GameResponse["scene"] | null>(null);
-  const [mode, setMode] = useState<GameResponse["mode"]>("fallback");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamedNarrative, setStreamedNarrative] = useState("");
   const [chapterTransition, setChapterTransition] = useState<ChapterTransitionData | null>(null);
+  const [lastChoiceId, setLastChoiceId] = useState<string | null>(null);
 
   const metrics = session?.state.metrics ?? {
     reputation: 0,
@@ -158,7 +158,6 @@ export default function App() {
       const result = await startGame(heroName.trim() || "林墨");
       setSession(result.session);
       setScene(result.scene);
-      setMode(result.mode);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "启动失败");
     } finally {
@@ -175,6 +174,7 @@ export default function App() {
     setError(null);
     setStreamedNarrative("");
     setChapterTransition(null);
+    setLastChoiceId(choiceId);
 
     try {
       const result = await advanceGameStream(session, choiceId, {
@@ -187,13 +187,11 @@ export default function App() {
         onComplete: (payload) => {
           setSession(payload.session);
           setScene(payload.scene);
-          setMode(payload.mode);
         },
       });
 
       setSession(result.session);
       setScene(result.scene);
-      setMode(result.mode);
       if (result.chapterTransition) {
         setChapterTransition(result.chapterTransition);
       }
@@ -207,6 +205,12 @@ export default function App() {
 
   function handleChapterContinue() {
     setChapterTransition(null);
+  }
+
+  function handleRetry() {
+    if (lastChoiceId) {
+      handleAdvance(lastChoiceId);
+    }
   }
 
   const hasStreamedText = loading && streamedNarrative.trim();
@@ -229,9 +233,6 @@ export default function App() {
                 <p className="mt-3 max-w-3xl text-sm leading-7 text-cedar/80 md:text-base">
                   现代社畜魂穿乱世流民，以诗词、谋略与民心为阶，步步走向朝堂中枢。这一版聚焦文字剧情与按钮选项推进。
                 </p>
-              </div>
-              <div className="rounded-full border border-ember/15 bg-white/70 px-4 py-2 text-sm text-cedar">
-                引擎模式：{mode === "openai" ? "OpenAI 在线生成" : "本地回退剧情"}
               </div>
             </div>
           </div>
@@ -351,7 +352,17 @@ export default function App() {
 
         {error ? (
           <div className="rounded-2xl border border-red-300 bg-red-50 px-5 py-4 text-sm text-red-700">
-            {error}
+            <div>{error}</div>
+            {lastChoiceId && session ? (
+              <button
+                type="button"
+                onClick={handleRetry}
+                disabled={loading}
+                className="mt-3 rounded-2xl border border-red-300 bg-white px-4 py-2 text-sm text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                重试本回合
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
