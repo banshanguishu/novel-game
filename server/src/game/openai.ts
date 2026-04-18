@@ -295,6 +295,43 @@ function normalizeAiTurn(raw: unknown): unknown {
   return { ...turn, choices };
 }
 
+const DELTA_BOUNDS: Record<string, [number, number]> = {
+  reputationDelta: [-3, 4],
+  imperialFavorDelta: [-2, 3],
+  peopleSupportDelta: [-2, 3],
+  intrigueDelta: [-2, 4],
+  militaryDelta: [-2, 3],
+  wealthDelta: [-2, 3],
+  imperialAuthorityDelta: [0, 3],
+  factionProgressDelta: [0, 5],
+};
+
+function sanitizeAiTurnJson(raw: unknown, overrideNarrative?: string[]): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const obj = { ...(raw as Record<string, unknown>) };
+
+  if (overrideNarrative) {
+    obj.narrative = overrideNarrative;
+  } else if (Array.isArray(obj.narrative)) {
+    const narr = (obj.narrative as unknown[])
+      .filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+    obj.narrative = narr.slice(0, 4);
+  }
+
+  if (obj.suggestedState && typeof obj.suggestedState === "object") {
+    const deltas = { ...(obj.suggestedState as Record<string, unknown>) };
+    for (const [key, [min, max]] of Object.entries(DELTA_BOUNDS)) {
+      const value = deltas[key];
+      if (typeof value === "number" && Number.isFinite(value)) {
+        deltas[key] = Math.min(max, Math.max(min, Math.round(value)));
+      }
+    }
+    obj.suggestedState = deltas;
+  }
+
+  return obj;
+}
+
 function toNarrativeParagraphs(raw: string): string[] {
   return raw
     .replace(/```(?:text|markdown)?/gi, "")
@@ -337,11 +374,17 @@ async function createChatCompletion(client: OpenAI, system: string, user: string
   }
 }
 
-async function createStructuredTurnFromPrompt(client: OpenAI, system: string, user: string): Promise<AiTurn> {
+async function createStructuredTurnFromPrompt(
+  client: OpenAI,
+  system: string,
+  user: string,
+  overrideNarrative?: string[],
+): Promise<AiTurn> {
   const response = await createChatCompletion(client, system, user);
   const content = extractMessageContent(response.choices[0]?.message?.content);
   const parsedJson = JSON.parse(extractJsonObject(content));
-  return aiTurnSchema.parse(normalizeAiTurn(parsedJson));
+  const sanitized = sanitizeAiTurnJson(parsedJson, overrideNarrative);
+  return aiTurnSchema.parse(normalizeAiTurn(sanitized));
 }
 
 // --- 公开接口 ---
@@ -399,8 +442,8 @@ export async function generateAiTurnFromNarrative(
   }
 
   const prompt = buildPromptFromNarrative(session, selectedChoice, narrative);
-  const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user);
-  return { turn: { ...parsedTurn, narrative } };
+  const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user, narrative);
+  return { turn: parsedTurn };
 }
 
 export async function generateAiTurn(
