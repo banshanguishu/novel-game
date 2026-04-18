@@ -12,16 +12,6 @@ import type { Choice, GameResponse, GameSession, NpcProfile } from "../types.js"
 const workspaceRoot = path.resolve(import.meta.dirname, "../../..");
 const worldDoc = readFileSync(path.join(workspaceRoot, "世界设定包.md"), "utf8");
 
-const worldSummary = [
-  "世界：纯架空大雍王朝，封建乱世，中央皇权衰弱，藩镇与世家并立。",
-  "主角：固定男主，现代社畜魂穿流民，靠诗词、治理思维、民生常识与权谋见识逆袭。",
-  "路线：当前只做专注权谋线，成长轨迹为流民 -> 文人/小吏 -> 朝堂重臣 -> 主帅 -> 女帝夫君。",
-  "女帝：萧清晏，聪慧克制，不恋爱脑，始终以天下与皇权为重。",
-  "文风：古风白话，简洁有画面感，不能出现明显现代词汇泛滥。",
-  "剧情约束：不能一步登天，每一步推进都要有因果与代价。",
-  "输出目标：每回合必须让主角更接近县衙、军伍、世家、朝堂、皇权等核心权力节点。",
-].join("\n");
-
 // --- NPC 上下文构建 ---
 
 function buildNpcContext(npcs: NpcProfile[]): string {
@@ -74,12 +64,32 @@ function buildMemoryContext(session: GameSession): string {
   return parts.join("\n");
 }
 
+function buildRecentChoicesContext(session: GameSession): string {
+  const recent = session.history.slice(-3);
+  if (recent.length === 0) {
+    return "";
+  }
+
+  const lines = recent.map((item) => {
+    const allLabels = [item.playerChoice, ...item.rejectedChoices];
+    return `第${item.turn}回合：${allLabels.join(" / ")}（玩家选择了：${item.playerChoice}）`;
+  });
+
+  return [
+    "【最近 3 轮出现过的选项（本章内）】",
+    ...lines,
+    "",
+    "新生成的选项必须在【推进目标】【接触对象】【行动方式】三个维度的至少两个维度上，与上述选项明显不同。不得出现语义重复或仅换词改写的选项。",
+  ].join("\n");
+}
+
 // --- Prompt 构建 ---
 
 function buildPrompt(session: GameSession, selectedChoice: Choice) {
   const metricsDesc = buildMetricsDescription(session.state.metrics);
   const npcContext = buildNpcContext(session.state.npcs);
   const memoryContext = buildMemoryContext(session);
+  const recentChoicesContext = buildRecentChoicesContext(session);
 
   const system = [
     "你是架空古风互动小说引擎，只为《大雍逆袭录》生成下一回合剧情。",
@@ -88,27 +98,37 @@ function buildPrompt(session: GameSession, selectedChoice: Choice) {
     "文风要求：古风白话，简洁有画面感，每次推进必须体现因果。",
     "玩家当前只能通过按钮选项推进剧情，不要要求自由输入。",
     "选项设计要求：每回合必须体现新的推进目标、接触对象或行动方式，不能只是重复上一轮的换词改写。",
+    "选项多样性要求：\n- 三个选项应体现不同的推进方向（例如：接触新对象 / 变换行动方式 / 引入新场景 / 触发新事件）\n- 禁止套用「激进行动 + 温和周旋 + 谨慎观望」的固定三元模板\n- intent 分布尽量多样：同一回合内避免 3 个选项都落在 power/people/caution 这个常见组合上",
     "优先推动阶段变化：流民求生 -> 县署立足 -> 入京见识 -> 朝堂博弈 -> 皇权扩张。",
     "你必须只返回一个 JSON 对象，不要输出解释、前后缀、markdown 代码块。",
-    `【世界摘要】\n${worldSummary}`,
+    `【世界设定】\n${worldDoc}`,
     `【主角当前属性】\n${metricsDesc}`,
     `【已知关键人物】\n${npcContext}`,
     "要求：NPC 的言行举止必须与其当前态度和与主角的关系一致。若某 NPC 尚未接触主角，不得安排其主动出场。",
   ].join("\n\n");
 
-  const user = [
+  const userParts = [
     `主角姓名：${session.protagonistName}`,
     `当前路线：${session.route}`,
     `当前阶段：${session.state.world.phase}`,
     `当前章节：${session.state.world.chapter}`,
     `当前回合：${session.state.world.turn}（本章第 ${session.state.world.chapterTurn} 回合）`,
     memoryContext,
+  ];
+
+  if (recentChoicesContext) {
+    userParts.push(recentChoicesContext);
+  }
+
+  userParts.push(
     `本回合玩家选择：${selectedChoice.label}`,
     "请生成紧接这一选择之后的下一幕剧情，给出 2-4 段叙述、2-4 个按钮选项，并提供小幅度的建议状态变化。",
     "所有 suggestedState 字段都必须填写，即使数值为 0；flagsToAdd 也必须返回数组。",
     "新选项必须与上一轮按钮明显不同，且都服务于权谋主线，不能跑偏到无关支线。",
     '返回 JSON 结构必须为：{"title":string,"location":string,"chapterLabel":string,"narrative":string[],"summary":string,"suggestedState":{"reputationDelta":number,"imperialFavorDelta":number,"peopleSupportDelta":number,"intrigueDelta":number,"militaryDelta":number,"wealthDelta":number,"imperialAuthorityDelta":number,"factionProgressDelta":number,"flagsToAdd":string[]},"choices":[{"label":string,"intent":"power|people|caution|emotion|action"}]}',
-  ].join("\n\n");
+  );
+
+  const user = userParts.join("\n\n");
 
   return { system, user };
 }
@@ -117,51 +137,73 @@ function buildNarrativePrompt(session: GameSession, selectedChoice: Choice) {
   const metricsDesc = buildMetricsDescription(session.state.metrics);
   const npcContext = buildNpcContext(session.state.npcs);
   const memoryContext = buildMemoryContext(session);
+  const recentChoicesContext = buildRecentChoicesContext(session);
 
   const system = [
     "你是架空古风互动小说引擎。",
     "请只生成下一幕的剧情正文，不要生成 JSON，不要生成选项，不要解释规则。",
     "固定要求：男主、强主线、专注权谋线、古风白话、因果明确、承接当前选择。",
-    `【世界摘要】\n${worldSummary}`,
+    `【世界设定】\n${worldDoc}`,
     `【主角当前属性】\n${metricsDesc}`,
     `【已知关键人物】\n${npcContext}`,
     "NPC 言行必须与其态度和关系一致。未接触的 NPC 不得主动出场。",
   ].join("\n\n");
 
-  const user = [
+  const userParts = [
     `主角姓名：${session.protagonistName}`,
     `当前阶段：${session.state.world.phase}`,
     `当前章节：${session.state.world.chapter}`,
     `当前回合：${session.state.world.turn}（本章第 ${session.state.world.chapterTurn} 回合）`,
     memoryContext,
+  ];
+
+  if (recentChoicesContext) {
+    userParts.push(recentChoicesContext);
+  }
+
+  userParts.push(
     `本回合玩家选择：${selectedChoice.label}`,
     "请紧接上一幕，直接写下一幕剧情正文。",
     "要求：2-3 段，每段自然分段；不能跳脱主线；不能换主角；不能改设定；不要标题；不要列表；不要问用户问题；只输出正文。",
-  ].join("\n\n");
+  );
+
+  const user = userParts.join("\n\n");
 
   return { system, user };
 }
 
 function buildPromptFromNarrative(session: GameSession, selectedChoice: Choice, narrative: string[]) {
+  const recentChoicesContext = buildRecentChoicesContext(session);
+
   const system = [
     "你是架空古风互动小说引擎的结构化输出模块。",
     "你会收到一段已经生成好的剧情正文。你必须基于这段正文返回结构化 JSON。",
     "不要改写 narrative 的内容，只为它补齐 title、location、chapterLabel、summary、suggestedState、choices。",
     "choices 的 intent 只能是 power、people、caution、emotion、action。",
-    `【世界摘要】\n${worldSummary}`,
+    "选项多样性要求：\n- 三个选项应体现不同的推进方向（例如：接触新对象 / 变换行动方式 / 引入新场景 / 触发新事件）\n- 禁止套用「激进行动 + 温和周旋 + 谨慎观望」的固定三元模板\n- intent 分布尽量多样：同一回合内避免 3 个选项都落在 power/people/caution 这个常见组合上",
+    `【世界设定】\n${worldDoc}`,
   ].join("\n\n");
 
-  const user = [
+  const userParts = [
     `主角姓名：${session.protagonistName}`,
     `当前阶段：${session.state.world.phase}`,
     `当前章节：${session.state.world.chapter}`,
     `当前回合：${session.state.world.turn}`,
     `本回合玩家选择：${selectedChoice.label}`,
     `已生成剧情正文：\n${narrative.join("\n\n")}`,
+  ];
+
+  if (recentChoicesContext) {
+    userParts.push(recentChoicesContext);
+  }
+
+  userParts.push(
     "请返回一个 JSON 对象，不要输出 markdown 代码块或解释。",
     "所有 suggestedState 字段都必须填写，即使数值为 0；flagsToAdd 也必须返回数组。",
     '返回 JSON 结构必须为：{"title":string,"location":string,"chapterLabel":string,"narrative":string[],"summary":string,"suggestedState":{"reputationDelta":number,"imperialFavorDelta":number,"peopleSupportDelta":number,"intrigueDelta":number,"militaryDelta":number,"wealthDelta":number,"imperialAuthorityDelta":number,"factionProgressDelta":number,"flagsToAdd":string[]},"choices":[{"label":string,"intent":"power|people|caution|emotion|action"}]}',
-  ].join("\n\n");
+  );
+
+  const user = userParts.join("\n\n");
 
   return { system, user };
 }
@@ -178,6 +220,7 @@ function buildChapterSummaryPrompt(session: GameSession) {
     "你是架空古风互动小说引擎的章节总结模块。",
     "你需要根据本章的经过，生成一段章节总结和结构化元数据。",
     "返回 JSON，不要输出 markdown 代码块或解释。",
+    `【世界设定】\n${worldDoc}`,
   ].join("\n\n");
 
   const npcIds = session.state.npcs.filter((n) => n.visible).map((n) => n.id);
