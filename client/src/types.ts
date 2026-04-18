@@ -77,6 +77,7 @@ export interface GameSession {
   history: Array<{
     turn: number;
     playerChoice: string;
+    rejectedChoices: string[];
     summary: string;
   }>;
   availableChoices: Choice[];
