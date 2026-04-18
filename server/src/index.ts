@@ -26,7 +26,7 @@ app.use(express.json({ limit: "1mb" }));
 app.get("/api/health", (_request, response) => {
   response.json({
     ok: true,
-    mode: process.env.OPENAI_API_KEY ? "openai-configured" : "fallback-only",
+    hasApiKey: Boolean(process.env.OPENAI_API_KEY),
   });
 });
 
@@ -45,7 +45,6 @@ app.post("/api/game/start", (request, response) => {
   const payload: GameResponse = {
     scene: createOpeningScene(session),
     session,
-    mode: process.env.OPENAI_API_KEY ? "openai" : "fallback",
   };
 
   response.json(payload);
@@ -120,7 +119,7 @@ app.post("/api/game/advance", async (request, response) => {
   try {
     const selectedChoice = findChoice(parsed.data.session, parsed.data.choiceId);
     const generated = await generateAiTurn(parsed.data.session, selectedChoice);
-    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
+    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn);
 
     if (result.needsChapterTransition) {
       const { updatedSession, transitionData } = await handleChapterTransition(
@@ -133,7 +132,7 @@ app.post("/api/game/advance", async (request, response) => {
 
     response.json(result.response);
   } catch (error) {
-    response.status(400).send(error instanceof Error ? error.message : "剧情推进失败。");
+    response.status(500).send(error instanceof Error ? error.message : "剧情推进失败。");
   }
 });
 
@@ -162,10 +161,9 @@ app.post("/api/game/advance/stream", async (request, response) => {
       parsed.data.session,
       selectedChoice,
       streamed.narrative,
-      streamed.mode,
     );
 
-    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn, generated.mode);
+    const result = applyTurn(parsed.data.session, selectedChoice, generated.turn);
 
     if (result.needsChapterTransition) {
       const { updatedSession, transitionData } = await handleChapterTransition(

@@ -49,7 +49,6 @@ export function applyTurn(
   session: GameSession,
   selectedChoice: Choice,
   aiTurn: AiTurn,
-  mode: GameResponse["mode"],
 ): ApplyTurnResult {
   const metricsBeforeTurn = { ...session.state.metrics };
   const nextTurn = session.state.world.turn + 1;
@@ -137,7 +136,7 @@ export function applyTurn(
   };
 
   return {
-    response: { scene, session: nextSession, mode },
+    response: { scene, session: nextSession },
     needsChapterTransition,
     metricsBeforeTurn,
   };

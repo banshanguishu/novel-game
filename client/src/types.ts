@@ -109,6 +109,5 @@ export interface ChapterTransitionData {
 export interface GameResponse {
   scene: StoryScene;
   session: GameSession;
-  mode: "openai" | "fallback";
   chapterTransition?: ChapterTransitionData;
 }

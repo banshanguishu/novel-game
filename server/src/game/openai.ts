@@ -2,10 +2,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import OpenAI from "openai";
 import { aiTurnSchema, chapterSummaryResponseSchema, type AiTurn, type ChapterSummaryResponse } from "./schema.js";
-import { createFallbackTurn, createFallbackChapterSummary } from "./fallback.js";
 import { buildMetricsDescription } from "./metrics.js";
 import { getVisibleNpcs } from "./npcs.js";
-import type { Choice, GameResponse, GameSession, NpcProfile } from "../types.js";
+import type { Choice, GameSession, NpcProfile } from "../types.js";
 
 // --- 预加载世界设定（启动时读一次） ---
 
@@ -305,18 +304,6 @@ function toNarrativeParagraphs(raw: string): string[] {
     .slice(0, 4);
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => { setTimeout(resolve, ms); });
-}
-
-async function streamTextFallback(text: string, onDelta: (delta: string) => Promise<void> | void) {
-  const chunkSize = 8;
-  for (let index = 0; index < text.length; index += chunkSize) {
-    await onDelta(text.slice(index, index + chunkSize));
-    await sleep(20);
-  }
-}
-
 // --- OpenAI 客户端 ---
 
 function createClient(): OpenAI | null {
@@ -362,111 +349,83 @@ export async function streamNarrativeTurn(
   session: GameSession,
   selectedChoice: Choice,
   onDelta: (delta: string) => Promise<void> | void,
-): Promise<{ narrative: string[]; mode: GameResponse["mode"] }> {
+): Promise<{ narrative: string[] }> {
   const client = createClient();
   if (!client) {
-    const fallbackTurn = createFallbackTurn(session, selectedChoice.label, selectedChoice.intent);
-    const text = fallbackTurn.narrative.join("\n\n");
-    await streamTextFallback(text, onDelta);
-    return { narrative: fallbackTurn.narrative, mode: "fallback" };
+    throw new Error("OPENAI_API_KEY 未配置，无法生成剧情。");
   }
 
-  try {
-    const prompt = buildNarrativePrompt(session, selectedChoice);
-    const model = (process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
-    const stream = await client.chat.completions.create(
-      {
-        model,
-        messages: [
-          { role: "system", content: prompt.system },
-          { role: "user", content: prompt.user },
-        ],
-        stream: true,
-        max_tokens: 420,
-      },
-      noThinking,
-    );
+  const prompt = buildNarrativePrompt(session, selectedChoice);
+  const model = (process.env.OPENAI_MODEL || "gpt-4.1-mini").trim();
+  const stream = await client.chat.completions.create(
+    {
+      model,
+      messages: [
+        { role: "system", content: prompt.system },
+        { role: "user", content: prompt.user },
+      ],
+      stream: true,
+      max_tokens: 420,
+    },
+    noThinking,
+  );
 
-    let text = "";
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (typeof delta === "string" && delta) {
-        text += delta;
-        await onDelta(delta);
-      }
+  let text = "";
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (typeof delta === "string" && delta) {
+      text += delta;
+      await onDelta(delta);
     }
-
-    const narrative = toNarrativeParagraphs(text);
-    if (!narrative.length) throw new Error("流式正文为空");
-    return { narrative, mode: "openai" };
-  } catch (error) {
-    console.warn("[openai] narrative stream failed, falling back:", error instanceof Error ? error.message : error);
-    const fallbackTurn = createFallbackTurn(session, selectedChoice.label, selectedChoice.intent);
-    const text = fallbackTurn.narrative.join("\n\n");
-    await streamTextFallback(text, onDelta);
-    return { narrative: fallbackTurn.narrative, mode: "fallback" };
   }
+
+  const narrative = toNarrativeParagraphs(text);
+  if (!narrative.length) {
+    throw new Error("模型返回了空的剧情正文。");
+  }
+  return { narrative };
 }
 
 export async function generateAiTurnFromNarrative(
   session: GameSession,
   selectedChoice: Choice,
   narrative: string[],
-  preferredMode: GameResponse["mode"],
-): Promise<{ turn: AiTurn; mode: GameResponse["mode"] }> {
+): Promise<{ turn: AiTurn }> {
   const client = createClient();
-  if (!client || preferredMode === "fallback") {
-    const fallbackTurn = createFallbackTurn(session, selectedChoice.label, selectedChoice.intent);
-    return { turn: { ...fallbackTurn, narrative }, mode: "fallback" };
+  if (!client) {
+    throw new Error("OPENAI_API_KEY 未配置，无法生成剧情。");
   }
 
-  try {
-    const prompt = buildPromptFromNarrative(session, selectedChoice, narrative);
-    const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user);
-    return { turn: { ...parsedTurn, narrative }, mode: "openai" };
-  } catch (error) {
-    console.warn("[openai] structured scene-from-narrative failed:", error instanceof Error ? error.message : error);
-    const fallbackTurn = createFallbackTurn(session, selectedChoice.label, selectedChoice.intent);
-    return { turn: { ...fallbackTurn, narrative }, mode: "fallback" };
-  }
+  const prompt = buildPromptFromNarrative(session, selectedChoice, narrative);
+  const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user);
+  return { turn: { ...parsedTurn, narrative } };
 }
 
 export async function generateAiTurn(
   session: GameSession,
   selectedChoice: Choice,
-): Promise<{ turn: AiTurn; mode: GameResponse["mode"] }> {
+): Promise<{ turn: AiTurn }> {
   const client = createClient();
   if (!client) {
-    return { turn: createFallbackTurn(session, selectedChoice.label, selectedChoice.intent), mode: "fallback" };
+    throw new Error("OPENAI_API_KEY 未配置，无法生成剧情。");
   }
 
   const prompt = buildPrompt(session, selectedChoice);
-  try {
-    const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user);
-    return { turn: parsedTurn, mode: "openai" };
-  } catch (error) {
-    console.warn("[openai] chat completion failed:", error instanceof Error ? error.message : error);
-    return { turn: createFallbackTurn(session, selectedChoice.label, selectedChoice.intent), mode: "fallback" };
-  }
+  const parsedTurn = await createStructuredTurnFromPrompt(client, prompt.system, prompt.user);
+  return { turn: parsedTurn };
 }
 
 export async function generateChapterSummary(
   session: GameSession,
-): Promise<{ summary: ChapterSummaryResponse; mode: GameResponse["mode"] }> {
+): Promise<{ summary: ChapterSummaryResponse }> {
   const client = createClient();
   if (!client) {
-    return { summary: createFallbackChapterSummary(session), mode: "fallback" };
+    throw new Error("OPENAI_API_KEY 未配置，无法生成章节总结。");
   }
 
-  try {
-    const prompt = buildChapterSummaryPrompt(session);
-    const response = await createChatCompletion(client, prompt.system, prompt.user);
-    const content = extractMessageContent(response.choices[0]?.message?.content);
-    const parsedJson = JSON.parse(extractJsonObject(content));
-    const validated = chapterSummaryResponseSchema.parse(parsedJson);
-    return { summary: validated, mode: "openai" };
-  } catch (error) {
-    console.warn("[openai] chapter summary failed:", error instanceof Error ? error.message : error);
-    return { summary: createFallbackChapterSummary(session), mode: "fallback" };
-  }
+  const prompt = buildChapterSummaryPrompt(session);
+  const response = await createChatCompletion(client, prompt.system, prompt.user);
+  const content = extractMessageContent(response.choices[0]?.message?.content);
+  const parsedJson = JSON.parse(extractJsonObject(content));
+  return { summary: chapterSummaryResponseSchema.parse(parsedJson) };
 }
