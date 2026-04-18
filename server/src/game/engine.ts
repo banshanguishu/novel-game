@@ -119,6 +119,9 @@ export function applyTurn(
       {
         turn: session.state.world.turn,
         playerChoice: selectedChoice.label,
+        rejectedChoices: session.availableChoices
+          .filter((c) => c.id !== selectedChoice.id)
+          .map((c) => c.label),
         summary: aiTurn.summary,
       },
     ].slice(-12),
